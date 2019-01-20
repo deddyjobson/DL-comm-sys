@@ -170,7 +170,7 @@ if candidate > best_acc:
     print('New best accuracy!')
     np.savetxt(join('Best','best_acc_{0:.2f}.txt').format(hyper.SNR) , np.array([candidate]))
     copyfile('autoencoder.py', join('Best','best_autoencoder_{0}.py'.format(hyper.SNR)) )
-    torch.save(model.state_dict(), join('Best','best_model_{0}.pt'.format(hyper.SNR))
+    torch.save(model.state_dict(), join('Best','best_model_{0}.pt'.format(hyper.SNR)))
 
 
 
