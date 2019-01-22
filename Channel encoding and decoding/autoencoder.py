@@ -3,6 +3,7 @@ import argparse
 import torch
 import pickle
 import os
+import errno
 
 from shutil import copyfile
 from os.path import join
@@ -13,9 +14,9 @@ parser.add_argument('--n_epochs',type=int,default=500) # number of epochs
 parser.add_argument('--n_batches',type=int,default=200) # number of batches per epoch
 parser.add_argument('--bs',type=int,default=128) # batch size
 parser.add_argument('--sl',type=int,default=20) # signal length
-parser.add_argument('--il',type=int,default=30) # intermediate length of network
+parser.add_argument('--il',type=int,default=20) # intermediate length of network
 parser.add_argument('--id',type=int,default=3) # intermediate depth
-parser.add_argument('--el',type=int,default=40) # encoding length
+parser.add_argument('--el',type=int,default=20) # encoding length
 parser.add_argument('--verbose',type=int,default=1) # verbosity
 parser.add_argument('--lr',type=float,default=1e-4) # learning rate
 parser.add_argument('--SNR',type=float,default=1) # signal to noise ratio
@@ -159,6 +160,15 @@ if hyper.verbose >= 0:
     print( 'Loss with double encoding:{0:.4e}'.format( double_loss ) )
     print( 'Accuracy with double encoding:{0:.2f}%'.format( double_acc ) )
 
+
+
+
+ # saving if best performer
+try:
+    os.makedirs('Best')
+except OSError as e:
+    if e.errno != errno.EEXIST:
+        raise
 
 candidate = acc.detach().numpy()
 try:
