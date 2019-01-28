@@ -8,7 +8,7 @@ snr_dBs = np.linspace(-2,10,20)
 snrs = 10 ** (snr_dBs/10)
 
 
-if True:
+if False:
     if os.path.isfile('results.csv'):
         os.remove('results.csv')
 
@@ -21,7 +21,7 @@ if True:
 data = np.loadtxt(open("results.csv", "rb"), delimiter=",", skiprows=0)
 x,y = data.T
 
-xx = 10 * np.log10(x)
+xx = x
 yy = y + 10**(-digits) # to soften the graph
 
 plt.figure(dpi=300)
