@@ -4,6 +4,8 @@
 from numpy import sqrt
 from numpy.random import rand, randn
 import matplotlib.pyplot as plt
+import pickle
+import numpy as np
 
 N = 5000000
 EbNodB_range = range(0,11)
@@ -21,16 +23,23 @@ for n in range (0, itr):
     errors = (x != y_d).sum()
     ber[n] = 1.0 * errors / N
 
-    print("EbNodB:" , EbNodB)
-    print("Error bits:" , errors)
-    print("Error probability:" , ber[n])
+    # print("EbNodB:" , EbNodB)
+    # print("Error bits:" , errors)
+    # print("Error probability:" , ber[n])
 
-plt.plot(EbNodB_range, ber, 'bo', EbNodB_range, ber, 'k')
+accs = pickle.load(open('error_rates_({0},{1}).pkl'.format(2,2),'rb'))
+xx = np.linspace(-2,10,20)
+yy = np.min(accs,axis=0) + 1e-10
+
+plt.figure(dpi=300)
+plt.plot(EbNodB_range, ber, 'bo', EbNodB_range, ber, 'k', label='BPSK')
+plt.plot(xx,yy,label='AE (2,2)')
 plt.axis([0, 10, 1e-6, 0.1])
 plt.xscale('linear')
 plt.yscale('log')
 plt.xlabel('EbNo(dB)')
 plt.ylabel('BER')
+plt.legend()
 plt.grid(True)
 plt.title('BPSK Modulation')
 plt.show()
