@@ -17,17 +17,17 @@ parser.add_argument('--n_epochs',type=int,default=500) # number of epochs
 parser.add_argument('--n_batches_enc',type=int,default=100) # number of batches per epoch
 parser.add_argument('--n_batches_dec',type=int,default=1000) # number of batches per epoch
 parser.add_argument('--bt',type=int,default=256) # batch size
-parser.add_argument('--br',type=int,default=32) # batch size
+parser.add_argument('--br',type=int,default=128) # batch size
 parser.add_argument('--n',type=int,default=4) # number of channels
 parser.add_argument('--k',type=int,default=8) # number of bits
 parser.add_argument('--verbose',type=int,default=1) # verbosity: higher the verbosier
 parser.add_argument('--lr_enc',type=float,default=1e-4) # learning rate
 parser.add_argument('--lr_dec',type=float,default=1e-3) # learning rate
-parser.add_argument('--SNR_dB',type=float,default=10) # signal to noise ratio
+parser.add_argument('--SNR_dB',type=float,default=8) # signal to noise ratio
 parser.add_argument('--init_std',type=float,default=0.1) # bias initialization
 parser.add_argument('--e_prec',type=int,default=5) # precision of error
 parser.add_argument('--decay',type=float,default=0) # weight decay adam
-parser.add_argument('--gpu',type=int,default=0)
+parser.add_argument('--gpu',type=int,default=1)
 parser.add_argument('--plot',type=int,default=1)
 temp = 0
 parser.add_argument('--load_best',type=int,default=temp) # whether to load best model
@@ -41,7 +41,8 @@ parser.add_argument('--sig_pi2',type=float,default=0.02) # to visualize encoding
 hyper = parser.parse_args()
 hyper.M = 2 ** hyper.k # number of messages
 hyper.SNR = 10 ** (hyper.SNR_dB/10)
-scaler = np.sqrt( hyper.SNR * 2 * hyper.k / hyper.n )
+# scaler = np.sqrt( hyper.SNR * hyper.k / hyper.n )
+scaler = np.sqrt( hyper.SNR )
 start = time()
 
 
@@ -86,11 +87,11 @@ if hyper.load_best:
 else:
     encoder = torch.nn.Sequential(
         torch.nn.Linear(hyper.M, hyper.M),torch.nn.ELU(),
-        torch.nn.Linear(hyper.M, hyper.n),
-        torch.nn.BatchNorm1d(hyper.n, affine=False) # contrains power of transmitter
+        torch.nn.Linear(hyper.M, 2*hyper.n), #transmitting complex numbers
+        torch.nn.BatchNorm1d(2*hyper.n, affine=False) # contrains power of transmitter
     )
     decoder = torch.nn.Sequential(
-        torch.nn.Linear(hyper.n, hyper.M), torch.nn.ReLU(),
+        torch.nn.Linear(2*hyper.n, hyper.M), torch.nn.ReLU(),
         torch.nn.Linear(hyper.M, hyper.M)
     )
 
@@ -161,7 +162,7 @@ errs.append(error_rate(op,labels))
 log(0,loss,acc)
 
 if hyper.train:
-    for _ in range(hyper.n_batches_dec): # initial training
+    for _ in range(10*hyper.n_batches_dec): # initial training
         receiver_step()
     for t in range(1,hyper.n_epochs):
         for _ in range(hyper.n_batches_enc):
@@ -209,10 +210,10 @@ if hyper.plot:
     plt.figure(dpi=250)
     plt.plot(range(hyper.n_epochs),errs,'-b')
     plt.title('Training profile of autoencoder ({0},{1})'.format(hyper.n,hyper.k))
-    plt.xlabel('$E_b/N_0$ [dB]')
+    plt.xlabel('Training Epoch')
     plt.ylabel('Block Error Rate')
     plt.grid()
-    plt.savefig( join('Training','training_({0},{1}).png'.format(hyper.n,hyper.k)) )
+    plt.savefig( join('Training','training_({0},{1})_{2}.png'.format(hyper.n,hyper.k,hyper.SNR_dB)) )
     plt.show()
 
 # saving if best performer
