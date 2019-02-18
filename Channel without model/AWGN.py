@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 from shutil import copyfile
 from os.path import join
 from sklearn.manifold import TSNE
+from sklearn.decomposition import PCA
 from time import time
 
 
@@ -18,12 +19,12 @@ parser.add_argument('--n_batches_enc',type=int,default=100) # number of batches 
 parser.add_argument('--n_batches_dec',type=int,default=1000) # number of batches per epoch
 parser.add_argument('--bt',type=int,default=256) # batch size
 parser.add_argument('--br',type=int,default=128) # batch size
-parser.add_argument('--n',type=int,default=4) # number of channels
-parser.add_argument('--k',type=int,default=8) # number of bits
+parser.add_argument('--n',type=int,default=1) # number of channels
+parser.add_argument('--k',type=int,default=3) # number of bits
 parser.add_argument('--verbose',type=int,default=1) # verbosity: higher the verbosier
 parser.add_argument('--lr_enc',type=float,default=1e-4) # learning rate
 parser.add_argument('--lr_dec',type=float,default=1e-3) # learning rate
-parser.add_argument('--SNR_dB',type=float,default=8) # signal to noise ratio
+parser.add_argument('--SNR_dB',type=float,default=12) # signal to noise ratio
 parser.add_argument('--init_std',type=float,default=0.1) # bias initialization
 parser.add_argument('--e_prec',type=int,default=5) # precision of error
 parser.add_argument('--decay',type=float,default=0) # weight decay adam
@@ -33,28 +34,29 @@ temp = 0
 parser.add_argument('--load_best',type=int,default=temp) # whether to load best model
 parser.add_argument('--train',type=int,default=1-temp) # whether to train
 parser.add_argument('--inspect',type=int,default=1-temp) # to make sure things are fine
-parser.add_argument('--constellation',type=int,default=temp) # to visualize encodings
+parser.add_argument('--constellation',type=int,default=0) # to visualize encodings
+parser.add_argument('--boundaries',type=int,default=temp) # to visualize encodings
 
 parser.add_argument('--sig_pi2',type=float,default=0.02) # to visualize encodings
 
 
-hyper = parser.parse_args()
-hyper.M = 2 ** hyper.k # number of messages
-hyper.SNR = 10 ** (hyper.SNR_dB/10)
-# scaler = np.sqrt( hyper.SNR * hyper.k / hyper.n )
-scaler = np.sqrt( hyper.SNR )
+hp = parser.parse_args()
+hp.M = 2 ** hp.k # number of messages
+hp.SNR = 10 ** (hp.SNR_dB/10)
+# scaler = np.sqrt( hp.SNR * hp.k / hp.n )
+scaler = np.sqrt( hp.SNR )
 start = time()
 
 
 device = "cpu" # default
-if hyper.gpu and torch.cuda.is_available():
+if hp.gpu and torch.cuda.is_available():
     device = "cuda:0"
 
 
 def weights_init(m):
     if isinstance(m, torch.nn.Linear):
         torch.nn.init.xavier_uniform_(m.weight,gain=1)
-        torch.nn.init.normal_(m.bias,std=hyper.init_std) # STD TERM PRETTY SENSITIVE
+        torch.nn.init.normal_(m.bias,std=hp.init_std) # STD TERM PRETTY SENSITIVE
 
 def log(t,loss,acc):
     log.mov_acc = log.mov_mom * log.mov_acc + acc
@@ -64,9 +66,9 @@ def log(t,loss,acc):
 log.mov_acc = 0
 log.mov_mom = 0.95
 
-def generate_input(amt=hyper.br): # to generate inputs
-    indices = torch.randint(low=0,high=hyper.M,size=(amt,),device=device)
-    return indices,torch.eye(hyper.M,device=device)[indices]
+def generate_input(amt=hp.br): # to generate inputs
+    indices = torch.randint(low=0,high=hp.M,size=(amt,),device=device)
+    return indices,torch.eye(hp.M,device=device)[indices]
 
 def accuracy(out, labels):
   outputs = torch.argmax(out, dim=1)
@@ -79,20 +81,20 @@ def add_channel_noise(enc):
     return enc + torch.randn_like(enc,device=device) / scaler
 
 # make network
-if hyper.load_best:
-    encoder = torch.load( join('Best','best_encoder({1},{2})_{0}.pt'.format(hyper.SNR,hyper.n,hyper.k)) )
-    decoder = torch.load( join('Best','best_decoder({1},{2})_{0}.pt'.format(hyper.SNR,hyper.n,hyper.k)) )
+if hp.load_best:
+    encoder = torch.load( join('Best','best_encoder({1},{2})_{0}.pt'.format(hp.SNR,hp.n,hp.k)) )
+    decoder = torch.load( join('Best','best_decoder({1},{2})_{0}.pt'.format(hp.SNR,hp.n,hp.k)) )
     encoder.to(device)
     decoder.to(device) # separate networks
 else:
     encoder = torch.nn.Sequential(
-        torch.nn.Linear(hyper.M, hyper.M),torch.nn.ELU(),
-        torch.nn.Linear(hyper.M, 2*hyper.n), #transmitting complex numbers
-        torch.nn.BatchNorm1d(2*hyper.n, affine=False) # contrains power of transmitter
+        torch.nn.Linear(hp.M, hp.M),torch.nn.ELU(),
+        torch.nn.Linear(hp.M, 2*hp.n), #transmitting complex numbers
+        torch.nn.BatchNorm1d(2*hp.n, affine=False) # contrains power of transmitter
     )
     decoder = torch.nn.Sequential(
-        torch.nn.Linear(2*hyper.n, hyper.M), torch.nn.ReLU(),
-        torch.nn.Linear(hyper.M, hyper.M)
+        torch.nn.Linear(2*hp.n, hp.M), torch.nn.ReLU(),
+        torch.nn.Linear(hp.M, hp.M)
     )
 
     encoder.to(device)
@@ -104,43 +106,37 @@ else:
 loss_fn_enc = torch.nn.CrossEntropyLoss(reduction='none')
 loss_fn_dec = torch.nn.CrossEntropyLoss()
 
-optim_enc = torch.optim.Adam(encoder.parameters(), lr=hyper.lr_enc, weight_decay=hyper.decay)
-optim_dec = torch.optim.Adam(decoder.parameters(), lr=hyper.lr_dec, weight_decay=hyper.decay)
+optim_enc = torch.optim.Adam(encoder.parameters(), lr=hp.lr_enc, weight_decay=hp.decay)
+optim_dec = torch.optim.Adam(decoder.parameters(), lr=hp.lr_dec, weight_decay=hp.decay)
 
 def transmit_sample(enc): # to transmit the encoded signals
-    return np.sqrt(1-hyper.sig_pi2)*enc + np.sqrt(hyper.sig_pi2)*torch.randn_like(enc,device=device)
+    return np.sqrt(1-hp.sig_pi2)*enc + np.sqrt(hp.sig_pi2)*torch.randn_like(enc,device=device)
 
 def normalize(enc):
-    return enc / torch.norm(enc,dim=1).reshape(-1,1) * np.sqrt(hyper.n) # normalization
+    return enc / torch.norm(enc,dim=1).reshape(-1,1) * np.sqrt(hp.n) # normalization
 
 def transmitter_step(): # reinforced learning
-    labels,ip = generate_input(amt=hyper.bt)
+    labels,ip = generate_input(amt=hp.bt)
     ft = encoder(ip)
-    xp = transmit_sample(ft)
+    with torch.no_grad(): # now, backprop learning from labels impossible
+        xp = transmit_sample(ft)
     rec = add_channel_noise(xp)
     op = decoder(rec)
 
     loss_enc = loss_fn_enc(op,labels)
+    log_prob = -torch.norm(xp - np.sqrt(1-hp.sig_pi2)*ft,2,1)**2/(2*hp.sig_pi2) #constants eliminated anyway
 
-    xp_fixed = torch.autograd.Variable(xp.data,requires_grad=False)
-    log_prob = -torch.norm(xp_fixed - np.sqrt(1-hyper.sig_pi2)*ft,2,1)**2/(2*hyper.sig_pi2) #constants eliminated anyway
-
-
-    if False:
-        vect = torch.dot( - log_prob,loss_enc**3) / hyper.bt
-    else:
-        vect = torch.dot( - log_prob,loss_enc) / hyper.bt
-
+    vect = torch.dot(log_prob,loss_enc) / hp.bt
 
     optim_enc.zero_grad()
-    vect.backward() # compute gradients
+    vect.backward() # minimize the quantity so on -ve sign
     optim_enc.step() # update parameters
 
 def receiver_step(): # supervised learning
     labels,ip = generate_input()
-    enc = encoder(ip)
+    with torch.no_grad():
+        enc = encoder(ip)
     rec = add_channel_noise(enc)
-    # rec.requires_grad=False #Now we can't train E2E
     op = decoder(rec)
 
     loss_dec = loss_fn_dec(op,labels)
@@ -151,28 +147,29 @@ def receiver_step(): # supervised learning
 
 errs = []
 #for epoch 0 - before any training
-labels,ip = generate_input(amt=10*hyper.br)
-enc = encoder(ip)
-enc = add_channel_noise(enc)
-op = decoder(enc)
+if hp.train:
+    labels,ip = generate_input(amt=10*hp.br)
+    enc = encoder(ip)
+    enc = add_channel_noise(enc)
+    op = decoder(enc)
 
-acc = accuracy(op,labels)
-loss = loss_fn_dec(op,labels)
-errs.append(error_rate(op,labels))
-log(0,loss,acc)
+    acc = accuracy(op,labels)
+    loss = loss_fn_dec(op,labels)
+    errs.append(error_rate(op,labels))
+    log(0,loss,acc)
 
-if hyper.train:
-    for _ in range(10*hyper.n_batches_dec): # initial training
+if hp.train:
+    for _ in range(10*hp.n_batches_dec): # initial training
         receiver_step()
-    for t in range(1,hyper.n_epochs):
-        for _ in range(hyper.n_batches_enc):
+    for t in range(1,hp.n_epochs):
+        for _ in range(hp.n_batches_enc):
             receiver_step()
             pass
-        for _ in range(hyper.n_batches_dec):
+        for _ in range(hp.n_batches_dec):
             transmitter_step()
             pass
-        if hyper.verbose >= 1:
-            labels,ip = generate_input(amt=10*hyper.br)
+        if hp.verbose >= 1:
+            labels,ip = generate_input(amt=10*hp.br)
             enc = encoder(ip)
             enc = add_channel_noise(enc)
             op = decoder(enc)
@@ -181,16 +178,14 @@ if hyper.train:
             loss = loss_fn_dec(op,labels)
             errs.append(error_rate(op,labels))
             log(t,loss,acc)
-        if hyper.verbose >= 2:
+        if hp.verbose >= 2:
             print(next(encoder.parameters())[0][0:3])
             print(next(decoder.parameters())[0][0:3])
 
-
-
 encoder.eval()
 decoder.eval()
-if hyper.verbose >= 0:
-    labels,ip = generate_input(amt=10**hyper.e_prec)
+if hp.verbose >= 0:
+    labels,ip = generate_input(amt=10**hp.e_prec)
     enc = encoder(ip)
     enc = add_channel_noise(enc)
     op = decoder(enc)
@@ -201,46 +196,45 @@ if hyper.verbose >= 0:
     print( 'Error rate:{0:.2e}\n\n'.format( 1-acc/100 ) )
 
 
-if hyper.plot:
+if hp.plot and hp.train:
     try:
         os.makedirs('Training')
     except OSError as e:
         if e.errno != errno.EEXIST:
             raise
     plt.figure(dpi=250)
-    plt.plot(range(hyper.n_epochs),errs,'-b')
-    plt.title('Training profile of autoencoder ({0},{1})'.format(hyper.n,hyper.k))
+    plt.plot(range(hp.n_epochs),errs,'-b')
+    plt.title('Training profile of autoencoder ({0},{1})'.format(hp.n,hp.k))
     plt.xlabel('Training Epoch')
     plt.ylabel('Block Error Rate')
     plt.grid()
-    plt.savefig( join('Training','training_({0},{1})_{2}.png'.format(hyper.n,hyper.k,hyper.SNR_dB)) )
+    plt.savefig( join('Training','training_({0},{1})_{2}.png'.format(hp.n,hp.k,hp.SNR_dB)) )
     plt.show()
 
 # saving if best performer
-if not hyper.load_best:
-    try:
-        os.makedirs('Best')
-    except OSError as e:
-        if e.errno != errno.EEXIST:
-            raise
+try:
+    os.makedirs('Best')
+except OSError as e:
+    if e.errno != errno.EEXIST:
+        raise
 
-    candidate = acc.cpu().detach().numpy()
-    try:
-        best_acc = np.loadtxt(join('Best','best_acc({1},{2})_{0:.2f}.txt').format(hyper.SNR,hyper.n,hyper.k))
-    except OSError:
-        best_acc = 0
+candidate = acc.cpu().detach().numpy()
+try:
+    best_acc = np.loadtxt(join('Best','best_acc({1},{2})_{0:.2f}.txt').format(hp.SNR,hp.n,hp.k))
+except OSError:
+    best_acc = 0
 
-    if candidate > best_acc:
-        print('New best accuracy!')
-        np.savetxt(join('Best','best_acc({1},{2})_{0:.2f}.txt').format(hyper.SNR,hyper.n,hyper.k) , np.array([candidate]))
-        copyfile('AWGN.py', join('Best','best_AWGN({1},{2})_{0}.py'.format(hyper.SNR,hyper.n,hyper.k)) )
-        torch.save(encoder, join('Best','best_encoder({1},{2})_{0}.pt'.format(hyper.SNR,hyper.n,hyper.k)))
-        torch.save(decoder, join('Best','best_decoder({1},{2})_{0}.pt'.format(hyper.SNR,hyper.n,hyper.k)))
-    else:
-        print('Too bad, Best accuracy is {0:.2f}%'.format(best_acc))
+if candidate > best_acc:
+    print('New best accuracy!')
+    np.savetxt(join('Best','best_acc({1},{2})_{0:.2f}.txt').format(hp.SNR,hp.n,hp.k) , np.array([candidate]))
+    copyfile('AWGN.py', join('Best','best_AWGN({1},{2})_{0}.py'.format(hp.SNR,hp.n,hp.k)) )
+    torch.save(encoder, join('Best','best_encoder({1},{2})_{0}.pt'.format(hp.SNR,hp.n,hp.k)))
+    torch.save(decoder, join('Best','best_decoder({1},{2})_{0}.pt'.format(hp.SNR,hp.n,hp.k)))
+else:
+    print('Too bad, Best accuracy is {0:.2f}%'.format(best_acc))
 
 
-if hyper.inspect: # to view encodings, etc.
+if hp.inspect: # to view encodings, etc.
     for _ in range(1):
         labels,ip = generate_input(amt=1)
         print('Input:\t\t',ip.data.cpu().numpy()[0])
@@ -252,14 +246,14 @@ if hyper.inspect: # to view encodings, etc.
         print('Output:\t\t',torch.softmax(op,dim=1).data.cpu().numpy()[0])
 
 
-if hyper.constellation: # to visualize encodings, etc.
+if hp.constellation: # to visualize encodings, etc.
     try:
         os.makedirs('Constellations')
     except OSError as e:
         if e.errno != errno.EEXIST:
             raise
 
-    ip = torch.eye(hyper.M,device=device)
+    ip = torch.eye(hp.M,device=device)
     enc = encoder(ip).cpu().detach().numpy()
 
     enc_emb = TSNE().fit_transform(enc).T
@@ -269,9 +263,60 @@ if hyper.constellation: # to visualize encodings, etc.
     plt.figure(dpi=250)
     plt.grid()
     plt.scatter(enc_emb[0],enc_emb[1])
-    plt.title('Constellation for AWGN ({0},{1})'.format(hyper.n,hyper.k))
-    plt.savefig( join('Constellations','constellation_({0},{1}).png'.format(hyper.n,hyper.k)) )
+    plt.title('Constellation for AWGN ({0},{1})'.format(hp.n,hp.k))
+    plt.savefig( join('Constellations','constellation_({0},{1}).png'.format(hp.n,hp.k)) )
     plt.show()
+
+
+if hp.boundaries: # to (try to) visualize decision boundaries, etc.
+    try:
+        os.makedirs('Decision Boundaries')
+    except OSError as e:
+        if e.errno != errno.EEXIST:
+            raise
+
+    ip = torch.eye(hp.M,device=device)
+    enc = encoder(ip).cpu().detach().numpy()
+
+    pca = PCA(2)
+
+    enc_emb = pca.fit_transform(enc).T
+    mean = enc_emb.mean(axis=1).reshape(2,1)
+    std = enc_emb.std()
+    enc_emb -= mean
+    enc_emb /= std
+
+    res = 2000
+
+    xx = np.linspace(-2,2,res).reshape(-1,1)
+    yy = np.linspace(-2,2,res)
+
+    end = np.zeros((res,1))
+    pts = []
+    for y in yy:
+        st = time()
+        enc = np.concatenate((xx,end+y),axis=1)
+        enc1 = pca.inverse_transform(enc)
+        enc1 = torch.from_numpy( enc1 ).float().to(device)
+        with torch.no_grad():
+            op = torch.nn.Softmax(dim=1)(decoder(enc1))
+        top2,_ = torch.topk(op,2,dim=1)
+        top_diff = torch.abs(top2[:,0]-top2[:,1])
+
+        for i,x in enumerate(top_diff):
+            if x < 0.01:
+                pts.append( [xx[i],y] )
+
+    pts_emb = np.array(pts).T
+
+
+    plt.figure(dpi=250)
+    plt.scatter(pts_emb[0],pts_emb[1],c='r',s=3)
+    plt.scatter(enc_emb[0],enc_emb[1])
+    plt.title('Decision boundaries for AWGN ({0},{1})'.format(hp.n,hp.k))
+    plt.savefig( join('Decision Boundaries','AWGN({0},{1}).png'.format(hp.n,hp.k)) )
+    plt.show()
+
 
 
 print( 'Total time taken:{0:.2f} seconds'.format(time()-start) )
