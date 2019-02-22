@@ -12,10 +12,12 @@ from time import time
 
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--n',type=int,default=8) # number of channels
-parser.add_argument('--k',type=int,default=8) # number of bits
-parser.add_argument('--teach_dB',type=float,default=4) # signal to noise ratio
-parser.add_argument('--SNR_dB',type=float,default=8) # signal to noise ratio
+parser.add_argument('--n',type=int,default=7) # number of channels
+parser.add_argument('--k',type=int,default=4) # number of bits
+parser.add_argument('--teach_dB',type=float,default=6)
+parser.add_argument('--SNR_dB',type=float,default=6) # signal to noise ratio
+parser.add_argument('--low',type=float,default=-4)
+parser.add_argument('--up',type=float,default=8)
 parser.add_argument('--e_prec',type=int,default=6) # precision of error
 parser.add_argument('--gpu',type=int,default=0)
 parser.add_argument('--calc_acc',type=int,default=0) # print test accuracy
@@ -46,6 +48,8 @@ def teach_forward(ip):
     return teach_dec( channel_output( teach_enc(ip) ) )
 def stud_forward(ip):
     return stud_dec( channel_output( stud_enc(ip) ) )
+def stud_alone_forward(ip):
+    return stud_alone_dec( channel_output( stud_alone_enc(ip) ) )
 def accuracy(out, labels):
     outputs = torch.argmax(out, dim=1)
     return 100 * torch.sum(outputs==labels).to(dtype=torch.double)/labels.numel()
@@ -57,37 +61,45 @@ teach_enc = torch.load( join('Best {0}'.format(hp.kwrd),'teacher_encoder({1},{2}
 teach_dec = torch.load( join('Best {0}'.format(hp.kwrd),'teacher_decoder({1},{2})_{0}.pt'.format(hp.teach_dB,hp.n,hp.k)) )
 stud_enc = torch.load( join('Best {0}'.format(hp.kwrd),'student_encoder({1},{2})_{0}.pt'.format(hp.SNR_dB,hp.n,hp.k)) )
 stud_dec = torch.load( join('Best {0}'.format(hp.kwrd),'student_decoder({1},{2})_{0}.pt'.format(hp.SNR_dB,hp.n,hp.k)) )
+stud_alone_enc = torch.load( join('Best {0}'.format(hp.kwrd),'stud_alone_encoder({1},{2})_{0}.pt'.format(hp.SNR_dB,hp.n,hp.k)) )
+stud_alone_dec = torch.load( join('Best {0}'.format(hp.kwrd),'stud_alone_decoder({1},{2})_{0}.pt'.format(hp.SNR_dB,hp.n,hp.k)) )
 
 teach_enc.to(device)
 teach_dec.to(device)
 stud_enc.to(device)
 stud_dec.to(device)
+stud_alone_enc.to(device)
+stud_alone_dec.to(device)
 
 teach_enc.eval()
 teach_dec.eval()
 stud_enc.eval()
 stud_dec.eval()
+stud_alone_enc.eval()
+stud_alone_dec.eval()
 
 if hp.calc_acc:
     labels,ip = generate_input(amt=10**hp.e_prec)
     op_teach = teach_forward(ip)
     op_stud = stud_forward(ip)
+    op_stud_alone = stud_alone_forward(ip)
     acc = accuracy(op_stud,labels)
+    acc_alone = accuracy(op_stud_alone,labels)
     teach_acc = accuracy(op_teach,labels)
     print( 'Teacher Accuracy:{0:.2f}%'.format( teach_acc ) )
     print( 'Student Accuracy:{0:.2f}%'.format( acc ) )
+    print( 'Student Alone   :{0:.2f}%'.format( acc_alone ) )
     print( 'Error rate:{0:.2e}\n\n'.format( 1-acc/100 ) )
 
 if hp.inspect: # to view encodings, etc.
-    for _ in range(1):
-        labels,ip = generate_input(amt=1)
-        print('Input:\t\t',ip.data.cpu().numpy()[0])
-        enc = stud_enc(ip)
-        print('Encoding:\t',enc.data.cpu().numpy()[0])
-        enc = channel_output(enc)
-        print('Channel:\t',enc.data.cpu().numpy()[0])
-        op = stud_dec(enc)
-        print('Output:\t\t',torch.softmax(op,dim=1).data.cpu().numpy()[0])
+    labels,ip = generate_input(amt=1)
+    print('Input:\t\t',ip.data.cpu().numpy()[0])
+    enc = stud_enc(ip)
+    print('Encoding:\t',enc.data.cpu().numpy()[0])
+    enc = channel_output(enc)
+    print('Channel:\t',enc.data.cpu().numpy()[0])
+    op = stud_dec(enc)
+    print('Output:\t\t',torch.softmax(op,dim=1).data.cpu().numpy()[0])
 
 if hp.constellation: # to visualize encodings, etc.
     try:
@@ -126,14 +138,14 @@ if hp.err_profile:
     except OSError as e:
         if e.errno != errno.EEXIST:
             raise
-    low = -2
-    up = 10
+    low = hp.low
+    up = hp.up
     num_pts = 2*(up-low)+1
 
     snr_dBs = np.linspace( low,up,num_pts )
     snrs = 10 ** (snr_dBs/10)
 
-    errs = np.zeros((2,num_pts))
+    errs = np.zeros((3,num_pts))
 
     for i,snr in enumerate(snrs):
         print(num_pts - i) # countdown
@@ -142,9 +154,11 @@ if hp.err_profile:
         labels,ip = generate_input(amt=10**hp.e_prec)
         op_teach = teach_forward(ip)
         op_stud = stud_forward(ip)
+        op_stud_alone = stud_alone_forward(ip)
 
         errs[0,i] = error_rate(op_teach,labels)
         errs[1,i] = error_rate(op_stud,labels)
+        errs[2,i] = error_rate(op_stud_alone,labels)
 
 
     xx = snr_dBs
@@ -156,7 +170,8 @@ if hp.err_profile:
     axes.set_ylim([1e-5,1e0])
     plt.grid()
     plt.semilogy(xx,yy[0],'-ob',label='Teacher')
-    plt.semilogy(xx,yy[1],'-or',label='Student')
+    plt.semilogy(xx,yy[2],'-or',label='Student Alone')
+    plt.semilogy(xx,yy[1],'-og',label='Student')
     plt.title('Error profile for {2} ({0},{1})'.format(hp.n,hp.k,hp.kwrd))
     plt.xlabel('$E_b/N_0$ [dB]')
     plt.ylabel('Block Error Rate')
