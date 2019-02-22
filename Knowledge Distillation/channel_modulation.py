@@ -24,9 +24,8 @@ parser.add_argument('--e_prec',type=int,default=5) # precision of error
 parser.add_argument('--T',type=float,default=50) # temperature
 parser.add_argument('--rel',type=float,default=0.5) # relative weight of losses
 parser.add_argument('--gpu',type=int,default=1)
-parser.add_argument('--train_teacher',type=int,default=0)
-temp = 0
-parser.add_argument('--best_student',type=int,default=temp) # whether to load best model
+parser.add_argument('--tt',type=int,default=0)
+parser.add_argument('--tsa',type=int,default=1)
 
 hp = parser.parse_args()
 hp.M = 2 ** hp.k # number of messages
@@ -85,7 +84,7 @@ def stud_forward(ip):
     return stud_dec( channel_output( stud_enc(ip) ) )
 
 
-if not hp.train_teacher:
+if not hp.tt:
     try:
         teach_enc = torch.load( join('Best CM','teacher_encoder({1},{2})_{0}.pt'.format(hp.teach_dB,hp.n,hp.k)) )
         teach_dec = torch.load( join('Best CM','teacher_decoder({1},{2})_{0}.pt'.format(hp.teach_dB,hp.n,hp.k)) )
@@ -114,8 +113,8 @@ else:
 
     model.apply(weights_init)
 
-
-if hp.train_teacher:
+print('Training Teacher...')
+if hp.tt:
     optimizer = torch.optim.Adam(model.parameters(), lr=hp.lr)
     for t in range(hp.n_epochs):
         for _ in range(hp.n_batches):
@@ -172,6 +171,50 @@ model.apply(weights_init)
 
 optimizer = torch.optim.Adam(model.parameters(), lr=hp.lr)
 
+# train student alone
+print('Training Student Alone...')
+log.mov_acc = 0
+if hp.tsa:
+    for t in range(hp.n_epochs):
+        for _ in range(hp.n_batches):
+            labels,ip = generate_input()
+            op = stud_forward(ip)
+            loss = loss_obj(op,labels)
+            optimizer.zero_grad()
+            loss.backward() # compute gradients
+            optimizer.step() # update parameters
+        if hp.verbose >= 1:
+            acc = accuracy(op,labels)
+            log(t,loss,acc)
+    model.eval()
+    labels,ip = generate_input(amt=10**hp.e_prec)
+    op = stud_forward(ip)
+    acc = accuracy(op,labels)
+    print( 'Student-Alone Accuracy:{0:.2f}%'.format( acc ) )
+    print( 'Error rate:{0:.2e}\n\n'.format( 1-acc/100 ) )
+
+    candidate = acc.cpu().detach().numpy()
+    stud_acc_alone = candidate
+    try:
+        best_acc = np.loadtxt(join('Best CM','best_stud_alone_acc({1},{2})_{0:.2f}.txt').format(hp.SNR_dB,hp.n,hp.k))
+    except OSError:
+        best_acc = 0
+
+    if candidate > best_acc:
+        print('New best accuracy!')
+        np.savetxt(join('Best CM','best_stud_alone_acc({1},{2})_{0:.2f}.txt').format(hp.SNR_dB,hp.n,hp.k) , np.array([candidate]))
+        torch.save(stud_enc, join('Best CM','stud_alone_encoder({1},{2})_{0}.pt'.format(hp.SNR_dB,hp.n,hp.k)))
+        torch.save(stud_dec, join('Best CM','stud_alone_decoder({1},{2})_{0}.pt'.format(hp.SNR_dB,hp.n,hp.k)))
+    else:
+        print('Too bad, Best accuracy is {0:.2f}%'.format(best_acc))
+
+
+
+# train student with the help of teacher
+model.train()
+model.apply(weights_init)
+print('Training Student with help of Teacher...')
+log.mov_acc = 0
 for t in range(hp.n_epochs):
     for _ in range(hp.n_batches):
         labels,ip = generate_input()
@@ -181,7 +224,6 @@ for t in range(hp.n_epochs):
         loss = loss_fn(op_stud,op_teach,labels)
         optimizer.zero_grad()
         loss.backward() # compute gradients
-
         optimizer.step() # update parameters
     if hp.verbose >= 1:
         acc = accuracy(op_stud,labels)
@@ -197,30 +239,31 @@ if hp.verbose >= 0:
     teach_acc = accuracy(op_teach,labels)
     print( 'Teacher Accuracy:{0:.2f}%'.format( teach_acc ) )
     print( 'Student Accuracy:{0:.2f}%'.format( acc ) )
+    if hp.tsa:
+        print( 'Student Alone   :{0:.2f}%'.format( stud_acc_alone ) )
     print( 'Error rate:{0:.2e}\n\n'.format( 1-acc/100 ) )
 
 
-if not hp.best_student:
-    try:
-        os.makedirs('Best CM')
-    except OSError as e:
-        if e.errno != errno.EEXIST:
-            raise
+try:
+    os.makedirs('Best CM')
+except OSError as e:
+    if e.errno != errno.EEXIST:
+        raise
 
-    candidate = acc.cpu().detach().numpy()
-    try:
-        best_acc = np.loadtxt(join('Best CM','best_acc({1},{2})_{0:.2f}.txt').format(hp.SNR_dB,hp.n,hp.k))
-    except OSError:
-        best_acc = 0
+candidate = acc.cpu().detach().numpy()
+try:
+    best_acc = np.loadtxt(join('Best CM','best_acc({1},{2})_{0:.2f}.txt').format(hp.SNR_dB,hp.n,hp.k))
+except OSError:
+    best_acc = 0
 
-    if candidate > best_acc:
-        print('New best accuracy!')
-        np.savetxt(join('Best CM','best_acc({1},{2})_{0:.2f}.txt').format(hp.SNR_dB,hp.n,hp.k) , np.array([candidate]))
-        copyfile('channel_modulation.py', join('Best CM','best_channel_modulation({1},{2})_{0}.py'.format(hp.SNR_dB,hp.n,hp.k)) )
-        torch.save(stud_enc, join('Best CM','student_encoder({1},{2})_{0}.pt'.format(hp.SNR_dB,hp.n,hp.k)))
-        torch.save(stud_dec, join('Best CM','student_decoder({1},{2})_{0}.pt'.format(hp.SNR_dB,hp.n,hp.k)))
-    else:
-        print('Too bad, Best accuracy is {0:.2f}%'.format(best_acc))
+if candidate > best_acc:
+    print('New best accuracy!')
+    np.savetxt(join('Best CM','best_acc({1},{2})_{0:.2f}.txt').format(hp.SNR_dB,hp.n,hp.k) , np.array([candidate]))
+    copyfile('channel_modulation.py', join('Best CM','best_channel_modulation({1},{2})_{0}.py'.format(hp.SNR_dB,hp.n,hp.k)) )
+    torch.save(stud_enc, join('Best CM','student_encoder({1},{2})_{0}.pt'.format(hp.SNR_dB,hp.n,hp.k)))
+    torch.save(stud_dec, join('Best CM','student_decoder({1},{2})_{0}.pt'.format(hp.SNR_dB,hp.n,hp.k)))
+else:
+    print('Too bad, Best accuracy is {0:.2f}%'.format(best_acc))
 
 
 
