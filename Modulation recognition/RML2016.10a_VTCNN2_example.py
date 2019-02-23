@@ -67,6 +67,7 @@ parser.add_argument('--slc',type=int,default=1) # show loss curves
 parser.add_argument('--pcm',type=int,default=1) # plot confusion matrix
 parser.add_argument('--snr_cm',type=int,default=1) # show confusion matrix for various snr values
 parser.add_argument('--pac',type=int,default=1) # plot accuracy curves
+parser.add_argument('--psd',type=int,default=1) # plot sample data point
 
 hp = parser.parse_args()
 
@@ -87,6 +88,14 @@ for mod in mods:
             lbl.append((mod,snr))
 X = np.vstack(X)
 
+if hp.psd:
+    idx = np.random.randint(0,X.shape[0])
+    t = X[idx]
+    t = np.linalg.norm(t,axis=0)
+    plt.figure(dpi=300)
+    plt.title('{0}—SNR_dB:{1}'.format(*lbl[idx]))
+    plt.plot(t)
+    plt.show()
 
 # Partition the data
 #  into training and test sets of the form we can train/test on
@@ -179,7 +188,6 @@ if hp.slc and hp.n_epochs>0:
     plt.savefig(os.path.join('Figures','training_performance.png'))
 elif hp.slc:
     print('Need to also set --n_epochs to a value greater than 1 to plot loss curve')
-# In[10]:
 
 
 def plot_confusion_matrix(cm, title='Confusion matrix', cmap=plt.cm.Blues, labels=[]):
@@ -248,7 +256,7 @@ if hp.snr_cm:
 if hp.pac and hp.snr_cm:
     if not hp.snr_cm:
         try:
-            _,__,acc = pickle.load(os.path.join('Data','results_cnn2_d0.5.dat'),'rb'))
+            _,__,acc = pickle.load(os.path.join('Data','results_cnn2_d0.5.dat'),'rb')
         except:
             print('No presaved data available. Need to also set --snr_cm to 1 to plot accuracy curve')
             exit()
