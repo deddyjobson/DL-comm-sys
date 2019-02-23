@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 from shutil import copyfile
 from os.path import join
 from sklearn.manifold import TSNE
+from sklearn.decomposition import PCA
 from time import time
 
 
@@ -16,8 +17,8 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--n_epochs',type=int,default=1000) # number of epochs
 parser.add_argument('--n_batches',type=int,default=100) # number of batches per epoch
 parser.add_argument('--bs',type=int,default=64) # batch size
-parser.add_argument('--n',type=int,default=2) # encoding length
-parser.add_argument('--k',type=int,default=2) # number of bits
+parser.add_argument('--n',type=int,default=7) # number of channels
+parser.add_argument('--k',type=int,default=4) # number of bits
 parser.add_argument('--depth',type=int,default=1) # number of hidden layers
 parser.add_argument('--verbose',type=int,default=1) # verbosity: higher the verbosier
 parser.add_argument('--lr',type=float,default=1e-3) # learning rate
@@ -26,11 +27,11 @@ parser.add_argument('--init_std',type=float,default=0.1) # bias initialization
 parser.add_argument('--e_prec',type=int,default=5) # precision of error
 parser.add_argument('--decay',type=float,default=0) # weight decay adam
 parser.add_argument('--gpu',type=int,default=0)
-temp = 0
-parser.add_argument('--load_best',type=int,default=temp) # whether to load best model
-parser.add_argument('--train',type=int,default=1-temp) # whether to train
-parser.add_argument('--inspect',type=int,default=1-temp) # to make sure things are fine
-parser.add_argument('--constellation',type=int,default=temp) # to visualize encodings
+parser.add_argument('--load_best',type=int,default=0) # whether to load best model
+parser.add_argument('--train',type=int,default=1) # whether to train
+parser.add_argument('--inspect',type=int,default=1) # to make sure things are fine
+parser.add_argument('--constellation',type=int,default=1) # to visualize encodings
+parser.add_argument('--boundaries',type=int,default=1) # to visualize encodings
 
 hyper = parser.parse_args()
 hyper.M = 2 ** hyper.k # number of messages
@@ -199,6 +200,57 @@ if hyper.constellation: # to visualize encodings, etc.
     plt.title('Constellation of autoencoder ({0},{1})'.format(hyper.n,hyper.k))
     plt.savefig( join('Constellations','constellation_({0},{1}).png'.format(hyper.n,hyper.k)) )
     plt.show()
+
+
+if hyper.boundaries: # to (try to) visualize decision boundaries, etc.
+    try:
+        os.makedirs('Decision Boundaries')
+    except OSError as e:
+        if e.errno != errno.EEXIST:
+            raise
+
+    ip = torch.eye(hyper.M,device=device)
+    enc = encoder(ip).cpu().detach().numpy()
+
+    pca = PCA(2)
+
+    enc_emb = pca.fit_transform(enc).T
+    mean = enc_emb.mean(axis=1).reshape(2,1)
+    std = enc_emb.std()
+    enc_emb -= mean
+    enc_emb /= std
+
+    res = 2000
+
+    xx = np.linspace(-2,2,res).reshape(-1,1)
+    yy = np.linspace(-2,2,res)
+
+    end = np.zeros((res,1))
+    pts = []
+    for y in yy:
+        st = time()
+        enc = np.concatenate((xx,end+y),axis=1)
+        enc1 = pca.inverse_transform(enc)
+        enc1 = torch.from_numpy( enc1 ).float().to(device)
+        with torch.no_grad():
+            op = torch.nn.Softmax(dim=1)(decoder(enc1))
+        top2,_ = torch.topk(op,2,dim=1)
+        top_diff = torch.abs(top2[:,0]-top2[:,1])
+
+        for i,x in enumerate(top_diff):
+            if x < 0.01:
+                pts.append( [xx[i],y] )
+
+    pts_emb = np.array(pts).T
+
+
+    plt.figure(dpi=250)
+    plt.scatter(pts_emb[0],pts_emb[1],c='r',s=3)
+    plt.scatter(enc_emb[0],enc_emb[1])
+    plt.title('Decision boundaries of autoencoder ({0},{1})'.format(hyper.n,hyper.k))
+    plt.savefig( join('Decision Boundaries','({0},{1}).png'.format(hyper.n,hyper.k)) )
+    plt.show()
+
 
 
 print( 'Total time taken:{0:.2f} seconds'.format(time()-start) )
