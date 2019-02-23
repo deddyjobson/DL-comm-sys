@@ -4,3 +4,8 @@ Channel modulation/Data/
 Channel without model/Best/
 Multiple transmitters receivers/Best/
 Knowledge Distillation/Best CM/
+Modulation recognition/Data
+Knowledge Distillation/Best MTR
+Modulation recognition/.ipynb_checkpoints
+Modulation recognition/Figures/convnet_confusion_matrix_(snr=*).png
+Modulation recognition/Models
