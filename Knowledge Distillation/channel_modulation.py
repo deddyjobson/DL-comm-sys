@@ -13,19 +13,19 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--n_epochs',type=int,default=2000) # number of epochs
 parser.add_argument('--n_batches',type=int,default=100) # number of batches per epoch
 parser.add_argument('--bs',type=int,default=256) # batch size
-parser.add_argument('--n',type=int,default=8) # encoding length
+parser.add_argument('--n',type=int,default=8) # number of channels
 parser.add_argument('--k',type=int,default=8) # number of bits
 parser.add_argument('--verbose',type=int,default=1) # verbosity: higher the verbosier
 parser.add_argument('--lr',type=float,default=1e-4) # learning rate
 parser.add_argument('--teach_dB',type=float,default=4) # signal to noise ratio
-parser.add_argument('--SNR_dB',type=float,default=8) # signal to noise ratio
+parser.add_argument('--SNR_dB',type=float,default=6) # signal to noise ratio
 parser.add_argument('--init_std',type=float,default=0.1) # bias initialization
 parser.add_argument('--e_prec',type=int,default=5) # precision of error
 parser.add_argument('--T',type=float,default=50) # temperature
 parser.add_argument('--rel',type=float,default=0.5) # relative weight of losses
 parser.add_argument('--gpu',type=int,default=1)
-parser.add_argument('--tt',type=int,default=0)
-parser.add_argument('--tsa',type=int,default=1)
+parser.add_argument('--tt',type=int,default=0) # train teacher
+parser.add_argument('--tsa',type=int,default=0) # train student alone
 
 hp = parser.parse_args()
 hp.M = 2 ** hp.k # number of messages
@@ -39,6 +39,12 @@ if hp.gpu and torch.cuda.is_available():
     device = "cuda:0"
 elif hp.gpu:
     print('GPU not available.')
+
+try:
+    os.makedirs('Best CM')
+except OSError as e:
+    if e.errno != errno.EEXIST:
+        raise
 
 def weights_init(m):
     if isinstance(m, torch.nn.Linear):
@@ -113,8 +119,8 @@ else:
 
     model.apply(weights_init)
 
-print('Training Teacher...')
 if hp.tt:
+    print('Training Teacher...')
     optimizer = torch.optim.Adam(model.parameters(), lr=hp.lr)
     for t in range(hp.n_epochs):
         for _ in range(hp.n_batches):
@@ -153,13 +159,12 @@ if hp.tt:
 teach_enc.eval()
 teach_dec.eval()
 # teacher model is ready for teaching
-
 stud_enc = torch.nn.Sequential(
     torch.nn.Linear(hp.M, hp.n),
     torch.nn.BatchNorm1d(hp.n, affine=False) # contrains power of transmitter
 )
 stud_dec = torch.nn.Sequential(
-    torch.nn.Linear(hp.n, hp.M), torch.nn.ReLU(),
+    torch.nn.Linear(hp.n, hp.M)
 )
 
 stud_enc.to(device)
@@ -172,9 +177,9 @@ model.apply(weights_init)
 optimizer = torch.optim.Adam(model.parameters(), lr=hp.lr)
 
 # train student alone
-print('Training Student Alone...')
 log.mov_acc = 0
 if hp.tsa:
+    print('Training Student Alone...')
     for t in range(hp.n_epochs):
         for _ in range(hp.n_batches):
             labels,ip = generate_input()
@@ -208,7 +213,7 @@ if hp.tsa:
     else:
         print('Too bad, Best accuracy is {0:.2f}%'.format(best_acc))
 
-
+exit()
 
 # train student with the help of teacher
 model.train()
@@ -242,13 +247,6 @@ if hp.verbose >= 0:
     if hp.tsa:
         print( 'Student Alone   :{0:.2f}%'.format( stud_acc_alone ) )
     print( 'Error rate:{0:.2e}\n\n'.format( 1-acc/100 ) )
-
-
-try:
-    os.makedirs('Best CM')
-except OSError as e:
-    if e.errno != errno.EEXIST:
-        raise
 
 candidate = acc.cpu().detach().numpy()
 try:
