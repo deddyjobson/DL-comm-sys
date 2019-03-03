@@ -55,10 +55,12 @@ from tensorflow.keras.layers import GaussianNoise
 from tensorflow.keras.layers import Convolution2D, MaxPooling2D, ZeroPadding2D
 from tensorflow.keras.regularizers import *
 from time import time
+from tensorflow.keras.optimizers import Adam
+from shutil import copyfile
 
 #hyper parameters
 parser = argparse.ArgumentParser()
-parser.add_argument('--n_epochs',type=int,default=100) # 0=> no training
+parser.add_argument('--n_epochs',type=int,default=300) # 0=> no training
 parser.add_argument('--bs',type=int,default=1024) # batch size
 parser.add_argument('--dr',type=float,default=0.5) # dropout rate
 parser.add_argument('--tts',type=float,default=0.5) # train_test_split: train/test
@@ -67,7 +69,8 @@ parser.add_argument('--slc',type=int,default=1) # show loss curves
 parser.add_argument('--pcm',type=int,default=1) # plot confusion matrix
 parser.add_argument('--snr_cm',type=int,default=1) # show confusion matrix for various snr values
 parser.add_argument('--pac',type=int,default=1) # plot accuracy curves
-parser.add_argument('--psd',type=int,default=1) # plot sample data point
+parser.add_argument('--psd',type=int,default=0) # plot sample data point
+parser.add_argument('--lr',type=float,default=1e-3) # train_test_split: train/test
 
 hp = parser.parse_args()
 
@@ -129,6 +132,8 @@ classes = mods
 #  - Pass through 2 Dense layers (ReLu and Softmax)
 #  - Perform categorical cross entropy optimization
 
+optim = Adam(hp.lr)
+
 model = models.Sequential()
 model.add(Reshape(in_shp+[1], input_shape=in_shp)) # tf format
 model.add(ZeroPadding2D((0, 2)))
@@ -143,26 +148,27 @@ model.add(Dropout(hp.dr))
 model.add(Dense( len(classes), kernel_initializer='he_normal', name="dense2" ))
 model.add(Activation('softmax'))
 model.add(Reshape([len(classes)]))
-model.compile(loss='categorical_crossentropy', metrics=['accuracy'], optimizer='adam')
+model.compile(loss='categorical_crossentropy', metrics=['accuracy'], optimizer=optim)
 
 # # Train the Model
 
 # perform training ...
 #   - call the main training loop in tf.keras for our network+dataset
-filepath = os.path.join('Models','convmodrecnets_CNN2_0.5.wts.h5')
+filename = os.path.join('Models','convmodrecnets_CNN2_{0}.wts.h5'.format(model.count_params()))
+
 if hp.n_epochs > 0:
     history = model.fit(X_train,
         Y_train,
         batch_size=hp.bs,
         epochs=hp.n_epochs,
         verbose=hp.vb,
-        validation_data=(X_test, Y_test),
+        validation_data=(X_test, Y_test), # WOT?
         callbacks = [
-            keras.callbacks.ModelCheckpoint(filepath, monitor='val_loss', verbose=0, save_best_only=True, mode='auto'),
-            keras.callbacks.EarlyStopping(monitor='val_loss', patience=10, verbose=0, mode='auto')
+            keras.callbacks.ModelCheckpoint(filename, monitor='val_acc', verbose=0, save_best_only=True, mode='auto'),
+            keras.callbacks.EarlyStopping(monitor='val_acc', patience=10, verbose=0, mode='auto')
         ])
 # we re-load the best weights once training is finished
-model.load_weights(filepath)
+model.load_weights(filename)
 
 
 # # Evaluate and Plot Model Performance
@@ -171,6 +177,27 @@ model.load_weights(filepath)
 score = model.evaluate(X_test, Y_test, verbose=0, batch_size=hp.bs)
 print('Test Evaluation:',score)
 
+
+try:
+    os.makedirs('Best')
+except OSError as e:
+    if e.errno != errno.EEXIST:
+        raise
+try:
+    best_acc = keras.models.load_model( os.path.join('Best','model{0}.h5'.format(model.count_params())) ).evaluate(X_test, Y_test, verbose=0, batch_size=hp.bs)[1]
+    print('Best Accuracy:',best_acc)
+except OSError:
+    best_acc = 0
+
+candidate = score[1]
+if candidate > best_acc:
+    print('New best accuracy!')
+    copyfile('RML2016.10a_VTCNN2_example.py', os.path.join('Best','bestRML2016.10a_{0}.py'.format(model.count_params())) )
+    model.save( os.path.join('Best','model{0}.h5'.format(model.count_params())) )
+else:
+    print('Too bad, Best accuracy is {0:.2f}'.format(best_acc))
+
+exit()
 
 try:
     os.makedirs('Figures')
