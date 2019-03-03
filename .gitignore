@@ -8,4 +8,8 @@ Modulation recognition/Data
 Knowledge Distillation/Best MTR
 Modulation recognition/.ipynb_checkpoints
 Modulation recognition/Figures/convnet_confusion_matrix_(snr=*).png
+Modulation recognition/Figures/teacher_convnet_confusion_matrix_(snr=*).png
 Modulation recognition/Models
+Modulation recognition/Best
+Knowledge Distillation/Best RBF
+Knowledge Distillation/Best CM Noise
