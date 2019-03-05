@@ -14,17 +14,17 @@ from time import time
 parser = argparse.ArgumentParser()
 parser.add_argument('--n',type=int,default=7) # number of channels
 parser.add_argument('--k',type=int,default=4) # number of bits
-parser.add_argument('--teach_dB',type=float,default=6)
-parser.add_argument('--SNR_dB',type=float,default=6) # signal to noise ratio
+parser.add_argument('--teach_dB',type=float,default=4)
+parser.add_argument('--SNR_dB',type=float,default=4) # signal to noise ratio
 parser.add_argument('--low',type=float,default=-4)
 parser.add_argument('--up',type=float,default=8)
 parser.add_argument('--e_prec',type=int,default=6) # precision of error
 parser.add_argument('--gpu',type=int,default=0)
 parser.add_argument('--calc_acc',type=int,default=0) # print test accuracy
 parser.add_argument('--inspect',type=int,default=0) # to view network mappings
-parser.add_argument('--constellation',type=int,default=0) # to visualize encodings
-parser.add_argument('--err_profile',type=int,default=1) # error vs SNR
-parser.add_argument('--kwrd',type=str,default='CM') # to visualize encodings
+parser.add_argument('--constellation',type=int,default=1) # to visualize encodings
+parser.add_argument('--err_profile',type=int,default=0) # error vs SNR
+parser.add_argument('--kwrd',type=str,default='CM Chi2 MSE') # to visualize encodings
 
 
 hp = parser.parse_args()
@@ -117,6 +117,12 @@ if hp.constellation: # to visualize encodings, etc.
     enc_emb -= enc_emb.mean(axis=1).reshape(2,1)
     enc_emb /= enc_emb.std()
     plt.scatter(enc_emb[0],enc_emb[1],label='Student')
+
+    enc = stud_alone_enc(ip).cpu().detach().numpy()
+    enc_emb = TSNE().fit_transform(enc).T
+    enc_emb -= enc_emb.mean(axis=1).reshape(2,1)
+    enc_emb /= enc_emb.std()
+    plt.scatter(enc_emb[0],enc_emb[1],label='Student alone')
 
     enc = teach_enc(ip).cpu().detach().numpy()
     enc_emb = TSNE().fit_transform(enc).T
