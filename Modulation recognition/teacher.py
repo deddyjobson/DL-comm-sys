@@ -57,6 +57,7 @@ from tensorflow.keras.regularizers import *
 from time import time
 from tensorflow.keras.optimizers import Adam
 from shutil import copyfile
+from os.path import join
 
 #hyper parameters
 parser = argparse.ArgumentParser()
@@ -65,9 +66,9 @@ parser.add_argument('--bs',type=int,default=1024) # batch size
 parser.add_argument('--dr',type=float,default=0.5) # dropout rate
 parser.add_argument('--tts',type=float,default=0.5) # train_test_split: train/test
 parser.add_argument('--vb',type=int,default=1) # verbosity
-parser.add_argument('--slc',type=int,default=1) # show loss curves
-parser.add_argument('--pcm',type=int,default=1) # plot confusion matrix
-parser.add_argument('--snr_cm',type=int,default=1) # show confusion matrix for various snr values
+parser.add_argument('--slc',type=int,default=0) # show loss curves
+parser.add_argument('--pcm',type=int,default=0) # plot confusion matrix
+parser.add_argument('--snr_cm',type=int,default=0) # show confusion matrix for various snr values
 parser.add_argument('--pac',type=int,default=1) # plot accuracy curves
 parser.add_argument('--psd',type=int,default=0) # plot sample data point
 parser.add_argument('--lr',type=float,default=1e-3) # train_test_split: train/test
@@ -117,6 +118,8 @@ def to_onehot(yy):
 Y_train = to_onehot(list(map(lambda x: mods.index(lbl[x][0]), train_idx)))
 Y_test = to_onehot(list(map(lambda x: mods.index(lbl[x][0]), test_idx)))
 
+# Y_train = np.array(list(map(lambda x: mods.index(lbl[x][0]), train_idx))).astype(np.int)
+# Y_test = np.array(list(map(lambda x: mods.index(lbl[x][0]), test_idx))).astype(np.int)
 
 in_shp = list(X_train.shape[1:])
 if hp.vb > 1:
@@ -131,6 +134,15 @@ classes = mods
 #  - Pass through 2 2DConv/ReLu layers
 #  - Pass through 2 Dense layers (ReLu and Softmax)
 #  - Perform categorical cross entropy optimization
+
+def loss_fn(y_true,y_pred):
+    # print(keras.backend.int_shape(y_true),keras.backend.int_shape(y_pred))
+    print('Something')
+    keras.backend.print_tensor(y_true)
+    keras.backend.print_tensor(y_pred)
+    print('Something')
+    # exit()
+    return keras.backend.sparse_categorical_crossentropy(y_true,y_pred,from_logits=True,axis=1)
 
 optim = Adam(hp.lr)
 
@@ -155,6 +167,7 @@ model.add(Dense( len(classes), kernel_initializer='he_normal', name="dense3" ))
 model.add(Activation('softmax'))
 model.add(Reshape([len(classes)]))
 model.compile(loss='categorical_crossentropy', metrics=['accuracy'], optimizer=optim)
+# model.compile(loss=loss_fn, metrics=['accuracy'], optimizer=optim)
 
 # # Train the Model
 
@@ -190,14 +203,15 @@ except OSError as e:
     if e.errno != errno.EEXIST:
         raise
 try:
-    best_acc = keras.models.load_model( os.path.join('Best','teacher_model{0}.h5'.format(model.count_params())) ).evaluate(X_test, Y_test, verbose=0, batch_size=hp.bs)[1]
-    print('Best Accuracy:',best_acc)
+    best_acc = np.loadtxt(join('Best','teach_acc({0}).txt').format(model.count_params()))
 except OSError:
     best_acc = 0
 
+print('Old best Accuracy:',best_acc)
 candidate = score[1]
 if candidate > best_acc:
     print('New best accuracy!')
+    best_acc = np.savetxt(join('Best','teach_acc({0}).txt').format(model.count_params()) , np.array([candidate]))
     copyfile('teacher.py', os.path.join('Best','teacher_{0}.py'.format(model.count_params())) )
     model.save( os.path.join('Best','teacher_model{0}.h5'.format(model.count_params())) )
 else:
@@ -243,7 +257,7 @@ if hp.pcm:
     conf = np.zeros([len(classes),len(classes)])
     confnorm = np.zeros([len(classes),len(classes)])
     for i in range(0,X_test.shape[0]):
-        j = list(Y_test[i,:]).index(1)
+        j = Y_test[i]
         k = int(np.argmax(test_Y_hat[i,:]))
         conf[j,k] = conf[j,k] + 1
     for i in range(0,len(classes)):
