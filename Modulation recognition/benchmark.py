@@ -5,7 +5,7 @@ import os
 from time import time
 
 # Load TFLite model and allocate tensors.
-for model in ['teacher','student']:
+for model in ['teacher','student','student8']:
     interpreter = tf.lite.Interpreter(model_path=os.path.join('Best',"{0}.tflite".format(model)))
     # interpreter = tf.lite.Interpreter(model_path=os.path.join('Best',"student.tflite"))
     interpreter.allocate_tensors()
