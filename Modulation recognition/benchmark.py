@@ -19,7 +19,7 @@ for mod in mods:
         X.append(Xd[(mod,snr)])
 X = np.vstack(X)[:num_pts].reshape((-1,*input_shape)).astype(np.float32)
 
-print('Measuring time taken over {0} samples...'.format(X.shape[0]))
+print('Measuring inference time for {0} samples...'.format(X.shape[0]))
 # Load TFLite model and allocate tensors.
 for model in ['teacher','student','student8']:
     total_time = 0
