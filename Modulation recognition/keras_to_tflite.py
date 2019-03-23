@@ -7,7 +7,6 @@ from os.path import join
 QUANTIZE = True
 custom_loss = K.categorical_crossentropy
 
-
 # convert teacher
 converter = tf.lite.TFLiteConverter.from_keras_model_file(join("Best","teacher_model9278475.h5"))
 tflite_model = converter.convert()
@@ -20,9 +19,10 @@ tflite_model = converter.convert()
 open(join("Best","student.tflite"), "wb").write(tflite_model)
 
 # convert student
+bs = 1
 if QUANTIZE:
     with CustomObjectScope({'custom_loss': custom_loss}):
-        converter = tf.lite.TFLiteConverter.from_keras_model_file(join("Best","student_model2830427.h5"))
+        converter = tf.lite.TFLiteConverter.from_keras_model_file(join("Best","student_model2830427.h5"), input_shapes={'reshape_input':[bs,2,128]})
         converter.post_training_quantize=True
 tflite_model = converter.convert()
-open(join("Best","student8.tflite"), "wb").write(tflite_model)
+open(join("Best","student8-{0}.tflite".format(bs)), "wb").write(tflite_model)
