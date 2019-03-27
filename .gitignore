@@ -16,3 +16,5 @@ Knowledge Distillation/Best RBF
 Knowledge Distillation/Best CM Noise
 Knowledge Distillation/Best CM Chi2 MSE
 Knowledge Distillation/Best CM Chi2 MSE deep
+Weights Pruning/Best
+Weights Pruning/pruning/__pycache__
