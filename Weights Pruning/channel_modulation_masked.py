@@ -17,13 +17,13 @@ from pruning.layers import MaskedLinear
 parser = argparse.ArgumentParser()
 parser.add_argument('--n_epochs',type=int,default=1000) # number of epochs
 parser.add_argument('--n_batches',type=int,default=100) # number of batches per epoch
-parser.add_argument('--bs',type=int,default=64) # batch size
-parser.add_argument('--n',type=int,default=7) # number of channels
-parser.add_argument('--k',type=int,default=4) # number of bits
+parser.add_argument('--bs',type=int,default=256) # batch size
+parser.add_argument('--n',type=int,default=8) # number of channels
+parser.add_argument('--k',type=int,default=8) # number of bits
 parser.add_argument('--depth',type=int,default=1) # number of hidden layers
 parser.add_argument('--verbose',type=int,default=1) # verbosity: higher the verbosier
 parser.add_argument('--lr',type=float,default=1e-3) # learning rate
-parser.add_argument('--SNR',type=float,default=3) # signal to noise ratio
+parser.add_argument('--SNR',type=float,default=4) # signal to noise ratio
 parser.add_argument('--init_std',type=float,default=0.1) # bias initialization
 parser.add_argument('--e_prec',type=int,default=5) # precision of error
 parser.add_argument('--decay',type=float,default=0) # weight decay adam
