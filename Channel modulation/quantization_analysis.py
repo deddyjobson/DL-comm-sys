@@ -70,17 +70,20 @@ def accuracy(out, labels):
 def error_rate(out,labels):
     return 1 - accuracy(out,labels)/100
 
-def quantize_not_quantize(m,nbits=8):#quantize+dequantize
+def quantize_not_quantize(m,nbits=4):#quantize+dequantize
      model = copy.deepcopy(m) # let's not destroy the original
-     for p in model.parameters():
-         mini = p.min()
-         maxi = p.max()
-         p = ( p-mini ) / maxi
-         p = p * 2**nbits
-         p = torch.round(p)
-         p /= 2**nbits
-         p = p * maxi + mini
-     return model
+     with torch.no_grad():
+         for p in model.parameters():
+             mini = p.min()
+             maxi = p.max()
+             p -= mini
+             p /= (maxi-mini)
+             p *= 2**(nbits-1)
+             torch.round(p,out=p)
+             p /= 2**(nbits-1)
+             p *= (maxi-mini)
+             p += mini
+         return model
 
 
 
@@ -99,6 +102,10 @@ decoder.eval()
 
 q_encoder = quantize_not_quantize(encoder)
 q_decoder = quantize_not_quantize(decoder)
+
+print(encoder[0].weight[0])
+print(q_encoder[0].weight[0])
+
 #normal network
 if hyper.verbose >= 0:
     labels,ip = generate_input(amt=10**hyper.e_prec)
@@ -107,7 +114,7 @@ if hyper.verbose >= 0:
     op = decoder(enc)
     loss = loss_fn(op,labels)
     acc = accuracy(op,labels)
-    print( '\nLoss with Full Precision:{0:.4e}'.format( loss ) )
+    print( '\nLoss for Full Precision:{0:.4e}'.format( loss ) )
     print( 'Accuracy:{0:.2f}%'.format( acc ) )
     print( 'Error rate:{0:.2e}\n\n'.format( 1-acc/100 ) )
 
@@ -120,6 +127,46 @@ if hyper.verbose >= 0:
     loss = loss_fn(op,labels)
     acc = accuracy(op,labels)
     print( '\nLoss with quantization (8-bit):{0:.4e}'.format( loss ) )
+    print( 'Accuracy:{0:.2f}%'.format( acc ) )
+    print( 'Error rate:{0:.2e}\n\n'.format( 1-acc/100 ) )
+
+
+# now regu
+encoder = torch.load( join('Best','best_regu_encoder({1},{2})_{0}.pt'.format(hyper.SNR,hyper.n,hyper.k)) )
+decoder = torch.load( join('Best','best_regu_decoder({1},{2})_{0}.pt'.format(hyper.SNR,hyper.n,hyper.k)) )
+encoder.to(device)
+decoder.to(device)
+model = torch.nn.Sequential(encoder,decoder) # end to end model
+model.to(device)
+
+loss_fn = torch.nn.CrossEntropyLoss()
+# optimizer = torch.optim.Adam(model.parameters(), lr=hyper.lr, weight_decay=hyper.decay)
+
+encoder.eval()
+decoder.eval()
+
+if hyper.verbose >= 0:
+    labels,ip = generate_input(amt=10**hyper.e_prec)
+    enc = encoder(ip)
+    enc = enc + torch.randn_like(enc,device=device) / scaler
+    op = decoder(enc)
+    loss = loss_fn(op,labels)
+    acc = accuracy(op,labels)
+    print( '\nLoss for Full Precision:{0:.4e}'.format( loss ) )
+    print( 'Accuracy:{0:.2f}%'.format( acc ) )
+    print( 'Error rate:{0:.2e}\n\n'.format( 1-acc/100 ) )
+    
+q_encoder = quantize_not_quantize(encoder)
+q_decoder = quantize_not_quantize(decoder)
+#quantized network
+if hyper.verbose >= 0:
+    labels,ip = generate_input(amt=10**hyper.e_prec)
+    enc = q_encoder(ip)
+    enc = enc + torch.randn_like(enc,device=device) / scaler
+    op = q_decoder(enc)
+    loss = loss_fn(op,labels)
+    acc = accuracy(op,labels)
+    print( '\nLoss regu quantization (8-bit):{0:.4e}'.format( loss ) )
     print( 'Accuracy:{0:.2f}%'.format( acc ) )
     print( 'Error rate:{0:.2e}\n\n'.format( 1-acc/100 ) )
 
