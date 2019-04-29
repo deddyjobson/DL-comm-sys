@@ -10,6 +10,7 @@ import argparse
 import numpy as np
 import os
 import errno
+import matplotlib.pyplot as plt
 
 from time import time
 from pruning.methods import weight_prune
@@ -21,16 +22,17 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--n_epochs',type=int,default=20) # number of epochs
 parser.add_argument('--n_batches',type=int,default=100) # number of batches per epoch
 parser.add_argument('--bs',type=int,default=64) # batch size
-parser.add_argument('--n',type=int,default=7) # number of channels
-parser.add_argument('--k',type=int,default=4) # number of bits
+parser.add_argument('--n',type=int,default=8) # number of channels
+parser.add_argument('--k',type=int,default=8) # number of bits
 parser.add_argument('--depth',type=int,default=1) # number of hidden layers
 parser.add_argument('--verbose',type=int,default=1) # verbosity: higher the verbosier
 parser.add_argument('--lr',type=float,default=1e-3) # learning rate
 parser.add_argument('--pp',type=float,default=30) # pruning percentage (/100)
-parser.add_argument('--SNR',type=float,default=3) # signal to noise ratio
+parser.add_argument('--SNR',type=float,default=4) # signal to noise ratio
 parser.add_argument('--init_std',type=float,default=0.1) # bias initialization
 parser.add_argument('--e_prec',type=int,default=5) # precision of error
 parser.add_argument('--gpu',type=int,default=1)
+parser.add_argument('--plot',type=int,default=1)
 
 hp = parser.parse_args()
 hp.M = 2 ** hp.k # number of messages
@@ -102,15 +104,45 @@ def test():
     return acc
 
 
-# load models
-# encoder = torch.load(join('Best','best_encoder(7,4)_3.pt'))
-# decoder = torch.load(join('Best','best_decoder(7,4)_3.pt'))
+
+low = -2
+up = 10
+snr_dBs = np.linspace(low,up,25)
+snrs = 10 ** (snr_dBs/10)
+errs = np.zeros_like(snrs)
+
+if hp.plot:
+    plt.figure(dpi=250)
+    axes = plt.gca()
+    axes.set_xlim([low,up])
+    axes.set_ylim([1e-5,1e0])
+xx = snr_dBs
+
 encoder = torch.load(join('Best','best_encoder({1},{2})_{0}.pt'.format(hp.SNR,hp.n,hp.k)))
 decoder = torch.load(join('Best','best_decoder({1},{2})_{0}.pt'.format(hp.SNR,hp.n,hp.k)))
 encoder.to(device)
 decoder.to(device)
 net = torch.nn.Sequential(encoder,decoder)
 net.to(device)
+
+
+
+if hp.plot:
+    for i,snr in enumerate(snrs):
+        print(i)
+        scal = np.sqrt( snr * 2 * hp.k / hp.n )
+
+
+        labels,ip = generate_input(amt=10**hp.e_prec)
+        enc = encoder(ip)
+        enc = enc + torch.randn_like(enc,device=device) / scal
+        op = decoder(enc)
+
+        errs[i] = error_rate(op,labels)
+
+    plt.semilogy(xx,errs + 1 / 10**hp.e_prec,label='All weights')
+
+
 
 
 loss_fn = torch.nn.CrossEntropyLoss()
@@ -129,6 +161,20 @@ for part in net: # part in [encoder,decoder]
 print("--- {}% parameters pruned ---".format(hp.pp))
 test()
 
+if hp.plot:
+    for i,snr in enumerate(snrs):
+        print(i)
+        scal = np.sqrt( snr * 2 * hp.k / hp.n )
+
+
+        labels,ip = generate_input(amt=10**hp.e_prec)
+        enc = encoder(ip)
+        enc = enc + torch.randn_like(enc,device=device) / scal
+        op = decoder(enc)
+
+        errs[i] = error_rate(op,labels)
+
+    plt.semilogy(xx,errs + 1 / 10**hp.e_prec,label='Pruned weights')
 
 # Retraining
 train()
@@ -138,6 +184,36 @@ print("--- After retraining ---")
 acc = test()
 prune_rate(net)
 
+if hp.plot:
+    for i,snr in enumerate(snrs):
+        print(i)
+        scal = np.sqrt( snr * 2 * hp.k / hp.n )
+
+
+        labels,ip = generate_input(amt=10**hp.e_prec)
+        enc = encoder(ip)
+        enc = enc + torch.randn_like(enc,device=device) / scal
+        op = decoder(enc)
+
+        errs[i] = error_rate(op,labels)
+
+    plt.semilogy(xx,errs + 1 / 10**hp.e_prec,label='Pruned+trained weights')
+
+
+try:
+    os.makedirs('Error Plots')
+except OSError as e:
+    if e.errno != errno.EEXIST:
+        raise
+
+if hp.plot:
+    plt.title('Error profile of pruned autoencoder ({0},{1}) for {2} percent of pruning'.format(hp.n,hp.k,hp.pp))
+    plt.xlabel('$E_b/N_0$ [dB]')
+    plt.ylabel('Block Error Rate')
+    plt.grid()
+    plt.legend()
+    plt.savefig(join( 'Error Plots','error_cm_({0},{1})_{2}.png'.format(hp.n,hp.k,hp.pp) ))
+    plt.show()
 
 try:
     os.makedirs('Best')
